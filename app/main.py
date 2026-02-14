@@ -169,13 +169,13 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 
 # Startup Event
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database on startup"""
-    init_db()
-    print(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} is starting...")
-    print(f"📚 API Docs: http://{settings.HOST}:{settings.PORT}/docs")
-    print(f"🔧 Environment: {settings.ENVIRONMENT}")
+# @app.on_event("startup")
+# async def startup_event():
+#     """Initialize database on startup"""
+#     init_db()
+#     print(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} is starting...")
+#     print(f"📚 API Docs: http://{settings.HOST}:{settings.PORT}/docs")
+#     print(f"🔧 Environment: {settings.ENVIRONMENT}")
 
 
 # Shutdown Event

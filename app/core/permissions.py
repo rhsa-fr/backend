@@ -1,8 +1,9 @@
 # ============================================================================
-# FILE: app/core/permissions.py
+# FILE: app/core/permissions.py (IMPROVED VERSION)
 # ============================================================================
 
-from typing import List, Optional
+from typing import List, Optional, Callable
+from functools import wraps
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -13,45 +14,93 @@ from app.core.security import decode_access_token
 security = HTTPBearer()
 
 
-class RoleChecker:
-    """
-    Dependency class to check if user has required role(s).
-    
-    Usage:
-        @router.get("/admin-only")
-        def admin_endpoint(user = Depends(RoleChecker(["admin"]))):
-            return {"message": "Admin access"}
-    """
-    
-    def __init__(self, allowed_roles: List[str]):
-        self.allowed_roles = allowed_roles
-    
-    def __call__(self, credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
-        token = credentials.credentials
-        payload = decode_access_token(token)
-        
-        if not payload:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        user_role = payload.get("role")
-        
-        if user_role not in self.allowed_roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission denied. Required roles: {', '.join(self.allowed_roles)}",
-            )
-        
-        # Return user info for use in endpoint
-        return {
-            "id": int(payload.get("sub")),
-            "username": payload.get("username"),
-            "role": user_role
-        }
+# ============================================================================
+# PERMISSION MATRIX - Role-Based Access Control
+# ============================================================================
+PERMISSIONS = {
+    "admin": {
+        "users": ["create", "read", "update", "delete", "activate", "deactivate"],
+        "anggota": ["create", "read", "update", "delete", "export"],
+        "profil_anggota": ["create", "read", "update", "delete"],
+        "jenis_simpanan": ["create", "read", "update", "delete"],
+        "simpanan": ["create", "read", "update", "delete", "setor", "tarik", "export"],
+        "pinjaman": ["create", "read", "update", "delete", "approve", "reject", "export"],
+        "angsuran": ["create", "read", "update", "delete", "bayar", "export"],
+        "laporan": ["read", "export"],
+        "dashboard": ["read"],
+    },
+    "ketua": {
+        "users": ["read"],  # Hanya bisa lihat user
+        "anggota": ["read", "export"],
+        "profil_anggota": ["read"],
+        "jenis_simpanan": ["read"],
+        "simpanan": ["read", "export"],
+        "pinjaman": ["read", "approve", "reject", "export"],  # Ketua approve/reject pinjaman
+        "angsuran": ["read", "export"],
+        "laporan": ["read", "export"],
+        "dashboard": ["read"],
+    },
+    "bendahara": {
+        "users": [],  # Tidak bisa akses users
+        "anggota": ["read"],
+        "profil_anggota": ["read"],
+        "jenis_simpanan": ["read"],
+        "simpanan": ["create", "read", "setor", "tarik", "export"],  # Bendahara kelola simpanan
+        "pinjaman": ["create", "read", "export"],  # Bendahara bisa input pinjaman
+        "angsuran": ["create", "read", "bayar", "export"],  # Bendahara bayar angsuran
+        "laporan": ["read"],
+        "dashboard": ["read"],
+    },
+}
 
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def has_permission(user_role: str, resource: str, action: str) -> bool:
+    """
+    Check if user role has permission for specific action on a resource.
+    
+    Args:
+        user_role: User's role (admin, ketua, bendahara)
+        resource: Resource name (users, anggota, simpanan, etc.)
+        action: Action to perform (create, read, update, delete, etc.)
+        
+    Returns:
+        True if user has permission, False otherwise
+    """
+    if user_role not in PERMISSIONS:
+        return False
+    
+    if resource not in PERMISSIONS[user_role]:
+        return False
+    
+    return action in PERMISSIONS[user_role][resource]
+
+
+def check_permission(user_role: str, resource: str, action: str) -> None:
+    """
+    Check permission and raise HTTPException if not allowed.
+    
+    Args:
+        user_role: User's role
+        resource: Resource name
+        action: Action name
+        
+    Raises:
+        HTTPException: If permission denied
+    """
+    if not has_permission(user_role, resource, action):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permission denied. Role '{user_role}' cannot '{action}' on '{resource}'",
+        )
+
+
+# ============================================================================
+# AUTHENTICATION & AUTHORIZATION
+# ============================================================================
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
@@ -60,20 +109,11 @@ def get_current_user(
     """
     Get current authenticated user from JWT token.
     
-    Args:
-        credentials: Bearer token from request header
-        db: Database session
-        
     Returns:
         Dictionary with user info (id, username, role)
         
     Raises:
         HTTPException: If token is invalid or expired
-        
-    Usage:
-        @router.get("/profile")
-        def get_profile(current_user = Depends(get_current_user)):
-            return current_user
     """
     token = credentials.credentials
     payload = decode_access_token(token)
@@ -92,36 +132,108 @@ def get_current_user(
     }
 
 
+# ============================================================================
+# ROLE-BASED DEPENDENCIES
+# ============================================================================
+
+class RoleChecker:
+    """
+    Dependency class to check if user has required role(s).
+    
+    Usage:
+        @router.get("/admin-only")
+        def admin_endpoint(user = Depends(RoleChecker(["admin"]))):
+            return {"message": "Admin access"}
+    """
+    
+    def __init__(self, allowed_roles: List[str]):
+        self.allowed_roles = allowed_roles
+    
+    def __call__(
+        self, 
+        credentials: HTTPAuthorizationCredentials = Depends(security), 
+        db: Session = Depends(get_db)
+    ):
+        token = credentials.credentials
+        payload = decode_access_token(token)
+        
+        if not payload:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        user_role = payload.get("role")
+        
+        if user_role not in self.allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission denied. Required roles: {', '.join(self.allowed_roles)}",
+            )
+        
+        return {
+            "id": int(payload.get("sub")),
+            "username": payload.get("username"),
+            "role": user_role
+        }
+
+
+class PermissionChecker:
+    """
+    Dependency class to check if user has specific permission.
+    
+    Usage:
+        @router.post("/pinjaman")
+        def create_pinjaman(
+            user = Depends(PermissionChecker("pinjaman", "create"))
+        ):
+            return {"message": "Pinjaman created"}
+    """
+    
+    def __init__(self, resource: str, action: str):
+        self.resource = resource
+        self.action = action
+    
+    def __call__(self, current_user: dict = Depends(get_current_user)):
+        check_permission(current_user["role"], self.resource, self.action)
+        return current_user
+
+
+# ============================================================================
+# CONVENIENCE FUNCTIONS
+# ============================================================================
+
 def require_role(allowed_roles: List[str]):
     """
-    Decorator factory to require specific roles for an endpoint.
+    Factory function to create RoleChecker dependency.
     
-    Args:
-        allowed_roles: List of roles that are allowed to access the endpoint
-        
-    Returns:
-        RoleChecker dependency
-        
     Usage:
         @router.post("/pinjaman/{id}/approve")
-        def approve_pinjaman(
-            id: int,
-            current_user = Depends(require_role(["ketua"]))
-        ):
-            return {"message": "Pinjaman approved"}
+        def approve_pinjaman(user = Depends(require_role(["ketua"]))):
+            pass
     """
     return RoleChecker(allowed_roles)
 
 
-def is_admin(current_user: dict = Depends(get_current_user)) -> dict:
+def require_permission(resource: str, action: str):
     """
-    Check if current user is admin.
+    Factory function to create PermissionChecker dependency.
     
     Usage:
-        @router.delete("/users/{id}")
-        def delete_user(id: int, current_user = Depends(is_admin)):
-            # Only admin can access
+        @router.post("/pinjaman")
+        def create_pinjaman(user = Depends(require_permission("pinjaman", "create"))):
+            pass
     """
+    return PermissionChecker(resource, action)
+
+
+# ============================================================================
+# SPECIFIC ROLE CHECKERS
+# ============================================================================
+
+def is_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    """Check if current user is admin."""
     if current_user["role"] != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -131,14 +243,7 @@ def is_admin(current_user: dict = Depends(get_current_user)) -> dict:
 
 
 def is_ketua(current_user: dict = Depends(get_current_user)) -> dict:
-    """
-    Check if current user is ketua.
-    
-    Usage:
-        @router.put("/pinjaman/{id}/approve")
-        def approve(id: int, current_user = Depends(is_ketua)):
-            # Only ketua can access
-    """
+    """Check if current user is ketua."""
     if current_user["role"] != "ketua":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -148,14 +253,7 @@ def is_ketua(current_user: dict = Depends(get_current_user)) -> dict:
 
 
 def is_bendahara(current_user: dict = Depends(get_current_user)) -> dict:
-    """
-    Check if current user is bendahara.
-    
-    Usage:
-        @router.post("/simpanan/setor")
-        def setor(data: dict, current_user = Depends(is_bendahara)):
-            # Only bendahara can access
-    """
+    """Check if current user is bendahara."""
     if current_user["role"] != "bendahara":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -165,14 +263,7 @@ def is_bendahara(current_user: dict = Depends(get_current_user)) -> dict:
 
 
 def is_admin_or_ketua(current_user: dict = Depends(get_current_user)) -> dict:
-    """
-    Check if current user is admin or ketua.
-    
-    Usage:
-        @router.get("/laporan/keuangan")
-        def laporan(current_user = Depends(is_admin_or_ketua)):
-            # Admin or ketua can access
-    """
+    """Check if current user is admin or ketua."""
     if current_user["role"] not in ["admin", "ketua"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -181,73 +272,69 @@ def is_admin_or_ketua(current_user: dict = Depends(get_current_user)) -> dict:
     return current_user
 
 
-def has_permission(user_role: str, required_roles: List[str]) -> bool:
+def is_admin_or_bendahara(current_user: dict = Depends(get_current_user)) -> dict:
+    """Check if current user is admin or bendahara."""
+    if current_user["role"] not in ["admin", "bendahara"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or Bendahara access required",
+        )
+    return current_user
+
+
+# ============================================================================
+# PERMISSION DECORATOR (for service layer)
+# ============================================================================
+
+def check_resource_permission(resource: str, action: str):
     """
-    Check if user role is in the list of required roles.
+    Decorator to check permission in service functions.
     
-    Args:
-        user_role: Current user's role
-        required_roles: List of roles that are allowed
-        
-    Returns:
-        True if user has permission, False otherwise
-        
     Usage:
-        if has_permission(current_user["role"], ["admin", "ketua"]):
-            # Do something
+        @check_resource_permission("pinjaman", "approve")
+        def approve_pinjaman_service(db, user_role, ...):
+            pass
     """
-    return user_role in required_roles
+    def decorator(func: Callable):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Assume user_role is passed as kwarg
+            user_role = kwargs.get("user_role")
+            if user_role and not has_permission(user_role, resource, action):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Permission denied for {action} on {resource}",
+                )
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
 
-# Permission matrix for reference
-PERMISSIONS = {
-    "admin": {
-        "users": ["create", "read", "update", "delete"],
-        "anggota": ["create", "read", "update", "delete"],
-        "simpanan": ["create", "read", "update", "delete"],
-        "pinjaman": ["create", "read", "update", "delete", "approve"],
-        "angsuran": ["create", "read", "update", "delete"],
-        "laporan": ["read"],
-    },
-    "ketua": {
-        "users": [],
-        "anggota": ["read"],
-        "simpanan": ["read"],
-        "pinjaman": ["read", "approve", "reject"],
-        "angsuran": ["read"],
-        "laporan": ["read"],
-    },
-    "bendahara": {
-        "users": [],
-        "anggota": ["read"],
-        "simpanan": ["create", "read", "update"],
-        "pinjaman": ["read"],
-        "angsuran": ["create", "read", "update"],
-        "laporan": ["read"],
-    },
-}
+# ============================================================================
+# PERMISSION HELPERS FOR BUSINESS LOGIC
+# ============================================================================
+
+def can_user_approve_pinjaman(user_role: str) -> bool:
+    """Check if user can approve pinjaman."""
+    return has_permission(user_role, "pinjaman", "approve")
 
 
-def check_permission(user_role: str, resource: str, action: str) -> bool:
+def can_user_bayar_angsuran(user_role: str) -> bool:
+    """Check if user can bayar angsuran."""
+    return has_permission(user_role, "angsuran", "bayar")
+
+
+def can_user_manage_simpanan(user_role: str) -> bool:
+    """Check if user can setor/tarik simpanan."""
+    return (has_permission(user_role, "simpanan", "setor") and 
+            has_permission(user_role, "simpanan", "tarik"))
+
+
+def get_user_permissions(user_role: str) -> dict:
     """
-    Check if user has permission for specific action on a resource.
+    Get all permissions for a user role.
     
-    Args:
-        user_role: User's role (admin, ketua, bendahara)
-        resource: Resource name (users, anggota, simpanan, etc.)
-        action: Action to perform (create, read, update, delete, approve, etc.)
-        
     Returns:
-        True if user has permission, False otherwise
-        
-    Usage:
-        if check_permission(current_user["role"], "pinjaman", "approve"):
-            # User can approve pinjaman
+        Dict of resources and their allowed actions
     """
-    if user_role not in PERMISSIONS:
-        return False
-    
-    if resource not in PERMISSIONS[user_role]:
-        return False
-    
-    return action in PERMISSIONS[user_role][resource]
+    return PERMISSIONS.get(user_role, {})

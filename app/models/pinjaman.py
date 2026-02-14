@@ -46,6 +46,7 @@ class Pinjaman(Base):
     user_pengaju = relationship("User", back_populates="pinjaman_pengaju", foreign_keys=[id_user_pengaju])
     user_persetujuan = relationship("User", back_populates="pinjaman_persetujuan", foreign_keys=[id_user_persetujuan])
     angsuran = relationship("Angsuran", back_populates="pinjaman", cascade="all, delete-orphan")
+    pinjaman_syarat = relationship("PinjamanSyarat", back_populates="pinjaman", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Pinjaman(id={self.id_pinjaman}, no={self.no_pinjaman}, status={self.status})>"

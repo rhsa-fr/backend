@@ -1,11 +1,14 @@
 # ============================================================================
-# FILE: app/schemas/pinjaman.py
+# FILE: app/schemas/pinjaman.py (UPDATED WITH SYARAT)
 # ============================================================================
 
 from pydantic import BaseModel, Field, ConfigDict, field_validator
-from typing import Optional
+from typing import Optional, List, TYPE_CHECKING
 from datetime import date, datetime
 from enum import Enum
+
+if TYPE_CHECKING:
+    from app.schemas.syarat_peminjaman import PinjamanSyaratDetailResponse
 
 
 class StatusPinjaman(str, Enum):
@@ -34,6 +37,7 @@ class PinjamanBase(BaseModel):
 
 class PinjamanCreate(PinjamanBase):
     tanggal_pengajuan: date = Field(..., description="Tanggal pengajuan pinjaman")
+    syarat_ids: Optional[List[int]] = Field(default=None, description="List ID syarat yang dilampirkan")
 
 
 class PinjamanUpdate(BaseModel):
@@ -95,6 +99,10 @@ class PinjamanResponse(BaseModel):
     sisa_pinjaman: float
     created_at: datetime
     
+    # Informasi syarat
+    total_syarat: Optional[int] = Field(0, description="Total syarat yang berlaku")
+    syarat_terpenuhi: Optional[int] = Field(0, description="Syarat yang terpenuhi")
+    
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -105,6 +113,9 @@ class PinjamanDetailResponse(PinjamanResponse):
     total_angsuran: Optional[int] = Field(0, description="Total jumlah angsuran")
     angsuran_lunas: Optional[int] = Field(0, description="Jumlah angsuran yang sudah lunas")
     angsuran_belum_bayar: Optional[int] = Field(0, description="Jumlah angsuran yang belum dibayar")
+    
+    # Detail syarat
+    detail_syarat: Optional[List["PinjamanSyaratDetailResponse"]] = Field(None, description="Detail syarat peminjaman")
     
     model_config = ConfigDict(from_attributes=True)
 
