@@ -186,9 +186,9 @@ CREATE TABLE `user` (
 --
 
 INSERT INTO `user` (`id_user`, `username`, `password`, `role`, `is_active`, `created_at`, `updated_at`) VALUES
-(2, 'ketua', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5yvT8qLZHxS0q', 'ketua', 1, '2026-02-02 10:00:30', '2026-02-02 10:00:30'),
-(3, 'bendahara', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5yvT8qLZHxS0q', 'bendahara', 1, '2026-02-02 10:00:30', '2026-02-02 10:00:30'),
-(4, 'admin', '$2b$12$tNUy8tZfqNbxDTgqPKdoqeJ0vN3qI5E0NlEzR6Z5Z5Z5Z5Z5Z5Z5a', 'admin', 1, '2026-02-03 03:41:04', '2026-02-03 03:41:04');
+(1, 'admin@koprasi.com',     '$2b$12$muLaz5lNHR3gEZVsaXcVjuwjTKpDQDHwxFD27aiaMBVgqChG9uo1S', 'admin',     1, '2026-02-02 10:00:30', '2026-02-02 10:00:30'),
+(2, 'ketua@koprasi.com',     '$2b$12$tUUT2I4fZZlMucdNAeIGC.hs2PL2UAkh0pm1jIuzv9IGsI/SCFmBC', 'ketua',     1, '2026-02-02 10:00:30', '2026-02-02 10:00:30'),
+(3, 'bendahara@koprasi.com', '$2b$12$0N6NmHOd0AnixmQNS9adU.KIzhlIxYvo42fGxQMzbWzlBMHuqMESe', 'bendahara', 1, '2026-02-02 10:00:30', '2026-02-02 10:00:30');
 
 --
 -- Indexes for dumped tables

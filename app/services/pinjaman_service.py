@@ -248,9 +248,9 @@ def check_pinjaman_lunas(db: Session, id_pinjaman: int):
     
     # Check semua angsuran
     angsuran_belum_lunas = db.query(Angsuran).filter(
-        and_(
-            Angsuran.id_pinjaman == id_pinjaman,
-            Angsuran.status != StatusAngsuran.LUNAS
+    and_(
+        Angsuran.id_pinjaman == id_pinjaman,
+        Angsuran.status == StatusAngsuran.BELUM_BAYAR 
         )
     ).count()
     

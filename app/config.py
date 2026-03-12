@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     DB_HOST: str = "localhost"
     DB_PORT: int = 3306
     DB_USER: str = "root"
-    DB_PASSWORD: str = "password"
-    DB_NAME: str = "koperasi_simpan_pinjam"
+    DB_PASSWORD: str = ""
+    DB_NAME: str = "koperasi_sp"
     
     # Connection Pool Settings
     DB_POOL_SIZE: int = 10

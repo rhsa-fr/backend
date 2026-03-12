@@ -152,8 +152,8 @@ def get_anggota_detail(
     from app.models.pinjaman import Pinjaman, StatusPinjaman
     from sqlalchemy import func
     total_pinjaman = db.query(func.sum(Pinjaman.sisa_pinjaman)).filter(
-        Anggota.id_anggota == id_anggota,
-        Pinjaman.status == StatusPinjaman.DISETUJUI
+    Pinjaman.id_anggota == id_anggota,
+    Pinjaman.status == StatusPinjaman.DISETUJUI
     ).scalar() or 0
     
     response_data = AnggotaResponse.model_validate(anggota).model_dump()

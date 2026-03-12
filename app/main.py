@@ -2,6 +2,7 @@
 # FILE: app/main.py
 # ============================================================================
 
+import traceback
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -39,7 +40,10 @@ app.add_middleware(
 )
 
 
+# ============================================================================
 # Exception Handlers
+# ============================================================================
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Handle validation errors"""
@@ -50,7 +54,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "message": error["msg"],
             "type": error["type"]
         })
-    
+
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
@@ -137,11 +141,22 @@ async def conflict_exception_handler(request: Request, exc: ConflictException):
 @app.exception_handler(SQLAlchemyError)
 async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
     """Handle database errors"""
+    # ── DEBUG: tampilkan error detail di terminal ──
+    print("\n" + "="*60)
+    print("❌ SQLALCHEMY ERROR CAUGHT")
+    print(f"   Type : {type(exc).__name__}")
+    print(f"   Error: {exc}")
+    print("   Traceback:")
+    print(traceback.format_exc())
+    print("="*60 + "\n")
+
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "status": "error",
-            "message": "Database error occurred"
+            "message": "Database error occurred",
+            # Tampilkan detail error jika DEBUG=true
+            **({"detail": str(exc)} if settings.DEBUG else {})
         }
     )
 
@@ -149,16 +164,26 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     """Handle general errors"""
+    # ── DEBUG: tampilkan error detail di terminal ──
+    print("\n" + "="*60)
+    print("❌ GENERAL ERROR CAUGHT")
+    print(f"   Type : {type(exc).__name__}")
+    print(f"   Error: {exc}")
+    print("   Traceback:")
+    print(traceback.format_exc())
+    print("="*60 + "\n")
+
     if settings.DEBUG:
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": "error",
                 "message": str(exc),
-                "type": type(exc).__name__
+                "type": type(exc).__name__,
+                "traceback": traceback.format_exc()
             }
         )
-    
+
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
@@ -168,7 +193,10 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 
-# Startup Event
+# ============================================================================
+# Startup / Shutdown Events
+# ============================================================================
+
 # @app.on_event("startup")
 # async def startup_event():
 #     """Initialize database on startup"""
@@ -178,7 +206,6 @@ async def general_exception_handler(request: Request, exc: Exception):
 #     print(f"🔧 Environment: {settings.ENVIRONMENT}")
 
 
-# Shutdown Event
 @app.on_event("shutdown")
 async def shutdown_event():
     """Close database connection on shutdown"""
@@ -186,7 +213,10 @@ async def shutdown_event():
     print(f"👋 {settings.APP_NAME} is shutting down...")
 
 
-# Root Endpoint
+# ============================================================================
+# Routes
+# ============================================================================
+
 @app.get("/", tags=["Root"])
 async def root():
     """Root endpoint"""
@@ -199,31 +229,34 @@ async def root():
     }
 
 
-# Health Check Endpoint
 @app.get("/health", tags=["Health"])
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint — cek koneksi database"""
     from datetime import datetime
+    from sqlalchemy import text
     from app.database import engine
-    
-    # Check database connection
+
     try:
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
         db_status = "connected"
     except Exception as e:
         db_status = f"error: {str(e)}"
-    
+        print(f"❌ DB HEALTH CHECK FAILED: {e}")
+
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "database": db_status,
-        "version": settings.APP_VERSION
+        "version": settings.APP_VERSION,
+        "debug_mode": settings.DEBUG,
+        "db_host": settings.DB_HOST,
+        "db_name": settings.DB_NAME,
+        "db_user": settings.DB_USER,
     }
 
 
 # Include API v1 Router
 app.include_router(api_v1_router, prefix="/api/v1")
-
 
 # Run with: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
