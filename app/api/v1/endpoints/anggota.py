@@ -116,9 +116,11 @@ def get_anggota_detail(
     if not anggota:
         raise NotFoundException("Anggota tidak ditemukan")
 
-    # Profil
+    # Profil — sanitize empty string enum fields sebelum validate
     profil_data = None
     if anggota.profil:
+        if anggota.profil.jenis_kelamin == "":
+            anggota.profil.jenis_kelamin = None
         profil_data = ProfilAnggotaResponse.model_validate(anggota.profil)
 
     # Total simpanan — query langsung ke tabel simpanan
@@ -222,15 +224,20 @@ def upsert_profil_anggota(
         for field in ["nik","tempat_lahir","tanggal_lahir","jenis_kelamin","alamat","kota","provinsi","kode_pos","pekerjaan","foto_profil"]:
             val = getattr(data, field, None)
             if val is not None:
-                setattr(profil, field, val)
+                # Sanitize: empty string -> None untuk enum field
+                setattr(profil, field, None if (field == "jenis_kelamin" and val == "") else val)
     else:
         profil = ProfilAnggota(id_anggota=id_anggota, **{
-            f: getattr(data, f) for f in ["nik","tempat_lahir","tanggal_lahir","jenis_kelamin","alamat","kota","provinsi","kode_pos","pekerjaan","foto_profil"]
+            f: (None if (f == "jenis_kelamin" and getattr(data, f) == "") else getattr(data, f))
+            for f in ["nik","tempat_lahir","tanggal_lahir","jenis_kelamin","alamat","kota","provinsi","kode_pos","pekerjaan","foto_profil"]
         })
         db.add(profil)
 
     db.commit()
     db.refresh(profil)
+    # Sanitize data lama di DB yang mungkin sudah berisi string kosong
+    if profil.jenis_kelamin == "":
+        profil.jenis_kelamin = None
     return ProfilAnggotaResponse.model_validate(profil)
 
 
@@ -244,4 +251,6 @@ def get_profil_anggota(
     profil = db.query(ProfilAnggota).filter(ProfilAnggota.id_anggota == id_anggota).first()
     if not profil:
         raise NotFoundException("Profil anggota tidak ditemukan")
+    if profil.jenis_kelamin == "":
+        profil.jenis_kelamin = None
     return ProfilAnggotaResponse.model_validate(profil)
