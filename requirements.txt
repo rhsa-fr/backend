@@ -42,6 +42,7 @@ email-validator==2.1.0
 # UVICORN DEPENDENCIES (for production)
 # ====================================================================
 httptools==0.6.1
+# FIX: uvloop hanya untuk Linux/Mac — Railway pakai Linux jadi aman
 uvloop==0.19.0; sys_platform != 'win32'
 watchfiles==0.21.0
 websockets==12.0
@@ -111,6 +112,6 @@ certifi==2024.2.2
 # PLATFORM-SPECIFIC NOTES
 # ====================================================================
 # Windows: bcrypt might need Visual C++ Build Tools
-# Linux: Install python3-dev and libpq-dev if needed
+# Linux (Railway): uvloop aktif otomatis karena sys_platform != 'win32'
 # macOS: Should work out of the box with Xcode Command Line Tools
 # ====================================================================
