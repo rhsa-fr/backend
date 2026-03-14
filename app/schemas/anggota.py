@@ -1,8 +1,8 @@
 # ============================================================================
-# FILE: app/schemas/anggota.py
+# FILE: app/schemas/anggota.py  — FIXED jenis_kelamin validator
 # ============================================================================
 
-from pydantic import BaseModel, Field, EmailStr, ConfigDict
+from pydantic import BaseModel, Field, EmailStr, ConfigDict, field_validator
 from typing import Optional
 from datetime import date, datetime
 from enum import Enum
@@ -19,7 +19,7 @@ class JenisKelamin(str, Enum):
     PEREMPUAN = "P"
 
 
-# Anggota Schemas
+# ── Anggota Schemas ───────────────────────────────────────────────────────────
 class AnggotaBase(BaseModel):
     nama_lengkap: str = Field(..., min_length=3, max_length=100, description="Nama lengkap anggota")
     email: Optional[EmailStr] = Field(None, description="Email anggota")
@@ -45,7 +45,7 @@ class AnggotaInDB(AnggotaBase):
     status: StatusAnggota
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -58,11 +58,11 @@ class AnggotaResponse(BaseModel):
     tanggal_bergabung: date
     status: StatusAnggota
     created_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
-# Profil Anggota Schemas
+# ── Profil Anggota Schemas ────────────────────────────────────────────────────
 class ProfilAnggotaBase(BaseModel):
     nik: Optional[str] = Field(None, max_length=16, description="NIK KTP")
     tempat_lahir: Optional[str] = Field(None, max_length=50, description="Tempat lahir")
@@ -74,6 +74,23 @@ class ProfilAnggotaBase(BaseModel):
     kode_pos: Optional[str] = Field(None, max_length=10, description="Kode pos")
     pekerjaan: Optional[str] = Field(None, max_length=50, description="Pekerjaan")
     foto_profil: Optional[str] = Field(None, max_length=255, description="Path foto profil")
+
+    # ── FIX: konversi string kosong "" → None sebelum validasi enum ──────────
+    # Bekerja untuk input dari frontend DAN saat model_validate dari DB object
+    @field_validator("jenis_kelamin", mode="before")
+    @classmethod
+    def sanitize_jenis_kelamin(cls, v):
+        """
+        Handle dua kasus:
+        1. Frontend kirim "" saat user pilih "-- Pilih --"
+        2. Data lama di DB tersimpan sebagai string kosong ""
+        Keduanya dikonversi ke None agar tidak gagal validasi enum.
+        """
+        if v is None or v == "":
+            return None
+        return v
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProfilAnggotaCreate(ProfilAnggotaBase):
@@ -89,27 +106,27 @@ class ProfilAnggotaInDB(ProfilAnggotaBase):
     id_anggota: int
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class ProfilAnggotaResponse(ProfilAnggotaBase):
     id_profil: int
     id_anggota: int
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
-# Combined Response
+# ── Combined Response ─────────────────────────────────────────────────────────
 class AnggotaDetailResponse(AnggotaResponse):
     profil: Optional[ProfilAnggotaResponse] = None
     total_simpanan: Optional[float] = Field(0, description="Total saldo simpanan")
     total_pinjaman_aktif: Optional[float] = Field(0, description="Total pinjaman aktif")
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
-# Jenis Simpanan Schemas
+# ── Jenis Simpanan Schemas ────────────────────────────────────────────────────
 class JenisSimpananBase(BaseModel):
     kode_jenis: str = Field(..., max_length=10, description="Kode jenis simpanan")
     nama_jenis: str = Field(..., max_length=50, description="Nama jenis simpanan")
@@ -136,7 +153,7 @@ class JenisSimpananInDB(JenisSimpananBase):
     is_active: bool
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -148,11 +165,11 @@ class JenisSimpananResponse(BaseModel):
     is_wajib: bool
     nominal_tetap: float
     is_active: bool
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
-# Simpanan Schemas
+# ── Simpanan / Transaksi Schemas ──────────────────────────────────────────────
 class TipeTransaksi(str, Enum):
     SETOR = "setor"
     TARIK = "tarik"
@@ -178,7 +195,7 @@ class SimpananInDB(SimpananBase):
     id_user: Optional[int] = None
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -195,7 +212,7 @@ class SimpananResponse(BaseModel):
     saldo_akhir: float
     keterangan: Optional[str] = None
     created_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -207,5 +224,5 @@ class SaldoSimpananResponse(BaseModel):
     total_setor: float
     total_tarik: float
     saldo: float
-    
+
     model_config = ConfigDict(from_attributes=True)

@@ -1,5 +1,5 @@
 # ============================================================================
-# FILE: app/services/angsuran_service.py
+# FILE: app/services/angsuran_service.py  — UPDATED with date filter
 # ============================================================================
 
 from sqlalchemy.orm import Session
@@ -167,7 +167,10 @@ def get_angsuran_list(
     skip: int = 0,
     limit: int = 10,
     id_pinjaman: Optional[int] = None,
-    status: Optional[str] = None
+    status: Optional[str] = None,
+    # ── FILTER BARU: bulan/tahun berdasarkan tanggal_jatuh_tempo ──────────
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
 ) -> tuple[List[Angsuran], int]:
     """Get list angsuran dengan filter"""
     query = db.query(Angsuran)
@@ -177,9 +180,16 @@ def get_angsuran_list(
     
     if status:
         query = query.filter(Angsuran.status == status)
+
+    # Filter berdasarkan rentang tanggal jatuh tempo
+    if start_date:
+        query = query.filter(Angsuran.tanggal_jatuh_tempo >= start_date)
+
+    if end_date:
+        query = query.filter(Angsuran.tanggal_jatuh_tempo <= end_date)
     
     total = query.count()
-    angsuran_list = query.order_by(Angsuran.angsuran_ke.asc()).offset(skip).limit(limit).all()
+    angsuran_list = query.order_by(Angsuran.tanggal_jatuh_tempo.asc()).offset(skip).limit(limit).all()
     
     return angsuran_list, total
 
@@ -255,48 +265,22 @@ def get_schedule_angsuran(db: Session, id_pinjaman: int) -> AngsuranScheduleResp
     
     angsuran_list = get_angsuran_by_pinjaman(db, id_pinjaman)
     
-    schedule_items = []
-    sisa = float(pinjaman.total_pinjaman)
-    
-    for angsuran in angsuran_list:
-        schedule_items.append(AngsuranScheduleItem(
-            angsuran_ke=angsuran.angsuran_ke,
-            tanggal_jatuh_tempo=angsuran.tanggal_jatuh_tempo,
-            nominal_angsuran=float(angsuran.nominal_angsuran),
-            pokok=float(angsuran.pokok),
-            bunga=float(angsuran.bunga),
-            sisa_pinjaman=sisa
+    items = []
+    for a in angsuran_list:
+        items.append(AngsuranScheduleItem(
+            angsuran_ke=a.angsuran_ke,
+            tanggal_jatuh_tempo=a.tanggal_jatuh_tempo,
+            nominal_angsuran=float(a.nominal_angsuran),
+            pokok=float(a.pokok),
+            bunga=float(a.bunga),
+            status=a.status,
+            tanggal_bayar=a.tanggal_bayar,
+            total_bayar=float(a.total_bayar) if a.total_bayar else None,
         ))
-        sisa -= float(angsuran.pokok)
     
     return AngsuranScheduleResponse(
         id_pinjaman=id_pinjaman,
         no_pinjaman=pinjaman.no_pinjaman,
-        total_pinjaman=float(pinjaman.total_pinjaman),
         lama_angsuran=pinjaman.lama_angsuran,
-        nominal_angsuran=float(pinjaman.nominal_angsuran),
-        schedule=schedule_items
+        jadwal=items,
     )
-
-
-def update_status_terlambat(db: Session):
-    """Update status angsuran yang terlambat (untuk cron job)"""
-    today = date.today()
-    
-    angsuran_terlambat = db.query(Angsuran).filter(
-        and_(
-            Angsuran.status == StatusAngsuran.BELUM_BAYAR,
-            Angsuran.tanggal_jatuh_tempo < today
-        )
-    ).all()
-    
-    for angsuran in angsuran_terlambat:
-        # Hitung denda untuk preview
-        denda = calculate_denda(
-            angsuran.tanggal_jatuh_tempo,
-            today,
-            float(angsuran.nominal_angsuran)
-        )
-        angsuran.denda = denda
-    
-    db.commit()

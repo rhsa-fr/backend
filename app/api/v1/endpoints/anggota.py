@@ -24,7 +24,6 @@ router = APIRouter()
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def generate_no_anggota(db: Session) -> str:
-    """Generate nomor anggota unik berdasarkan tanggal"""
     now = datetime.now()
     prefix = f"A-{now.strftime('%Y%m%d')}"
     last = (
@@ -37,6 +36,17 @@ def generate_no_anggota(db: Session) -> str:
     return f"{prefix}-{num:03d}"
 
 
+def _clean_profil(profil: ProfilAnggota, db: Session) -> ProfilAnggota:
+    """
+    Bersihkan data lama: string kosong '' di kolom enum → NULL.
+    Diperlukan karena data lama mungkin tersimpan sebagai '' bukan NULL.
+    """
+    if profil.jenis_kelamin == "":
+        profil.jenis_kelamin = None
+        db.commit()
+    return profil
+
+
 # ── GET /anggota ──────────────────────────────────────────────────────────────
 @router.get("", response_model=PaginatedResponse[AnggotaResponse])
 def get_anggota_list(
@@ -47,7 +57,6 @@ def get_anggota_list(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get list anggota dengan filter status dan search"""
     query = db.query(Anggota)
     if status:
         query = query.filter(Anggota.status == status)
@@ -72,7 +81,6 @@ def create_anggota(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Create anggota baru — no_anggota di-generate otomatis"""
     if data.email:
         if db.query(Anggota).filter(Anggota.email == data.email).first():
             raise ConflictException("Email sudah digunakan")
@@ -111,56 +119,35 @@ def get_anggota_detail(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get detail anggota lengkap: profil + finansial summary"""
     anggota = db.query(Anggota).filter(Anggota.id_anggota == id_anggota).first()
     if not anggota:
         raise NotFoundException("Anggota tidak ditemukan")
 
-    # Profil — sanitize empty string enum fields sebelum validate
-    profil_data = None
-    if anggota.profil:
-        if anggota.profil.jenis_kelamin == "":
-            anggota.profil.jenis_kelamin = None
-        profil_data = ProfilAnggotaResponse.model_validate(anggota.profil)
+    profil = db.query(ProfilAnggota).filter(ProfilAnggota.id_anggota == id_anggota).first()
 
-    # Total simpanan — query langsung ke tabel simpanan
-    try:
-        from app.models.simpanan import Simpanan
-        total_setor = (
-            db.query(func.coalesce(func.sum(Simpanan.nominal), 0))
-            .filter(Simpanan.id_anggota == id_anggota, Simpanan.tipe_transaksi == "setor")
-            .scalar()
-        ) or 0
-        total_tarik = (
-            db.query(func.coalesce(func.sum(Simpanan.nominal), 0))
-            .filter(Simpanan.id_anggota == id_anggota, Simpanan.tipe_transaksi == "tarik")
-            .scalar()
-        ) or 0
-        total_simpanan = float(total_setor) - float(total_tarik)
-    except Exception:
-        total_simpanan = 0.0
+    # Bersihkan data lama sebelum serialize
+    if profil:
+        profil = _clean_profil(profil, db)
 
-    # Total pinjaman aktif — FIX: filter by id_anggota di tabel Pinjaman langsung
-    try:
-        from app.models.pinjaman import Pinjaman, StatusPinjaman
-        total_pinjaman = (
-            db.query(func.coalesce(func.sum(Pinjaman.sisa_pinjaman), 0))
-            .filter(
-                Pinjaman.id_anggota == id_anggota,          # ← FIX: join correct
-                Pinjaman.status == StatusPinjaman.DISETUJUI,
-            )
-            .scalar()
-        ) or 0
-        total_pinjaman = float(total_pinjaman)
-    except Exception:
-        total_pinjaman = 0.0
+    from app.models.simpanan import Simpanan
+    from app.models.pinjaman import Pinjaman, StatusPinjaman
+    from sqlalchemy import func as sqlfunc
 
-    response_data = AnggotaResponse.model_validate(anggota).model_dump()
-    response_data["profil"] = profil_data
-    response_data["total_simpanan"] = total_simpanan
-    response_data["total_pinjaman_aktif"] = total_pinjaman
+    total_simpanan_result = db.query(sqlfunc.sum(Simpanan.saldo_akhir)).filter(
+        Simpanan.id_anggota == id_anggota
+    ).scalar()
 
-    return AnggotaDetailResponse(**response_data)
+    total_pinjaman_result = db.query(sqlfunc.sum(Pinjaman.sisa_pinjaman)).filter(
+        Pinjaman.id_anggota == id_anggota,
+        Pinjaman.status == StatusPinjaman.DISETUJUI,
+    ).scalar()
+
+    response_data = AnggotaDetailResponse.model_validate(anggota)
+    response_data.profil = ProfilAnggotaResponse.model_validate(profil) if profil else None
+    response_data.total_simpanan = float(total_simpanan_result or 0)
+    response_data.total_pinjaman_aktif = float(total_pinjaman_result or 0)
+
+    return response_data
 
 
 # ── PUT /anggota/{id} ─────────────────────────────────────────────────────────
@@ -171,21 +158,19 @@ def update_anggota(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Update data anggota"""
     anggota = db.query(Anggota).filter(Anggota.id_anggota == id_anggota).first()
     if not anggota:
         raise NotFoundException("Anggota tidak ditemukan")
 
-    # Cek konflik email
     if data.email and data.email != anggota.email:
         if db.query(Anggota).filter(Anggota.email == data.email).first():
             raise ConflictException("Email sudah digunakan")
 
-    if data.nama_lengkap  is not None: anggota.nama_lengkap   = data.nama_lengkap
-    if data.email         is not None: anggota.email          = data.email
-    if data.no_telepon    is not None: anggota.no_telepon     = data.no_telepon
+    if data.nama_lengkap      is not None: anggota.nama_lengkap      = data.nama_lengkap
+    if data.email             is not None: anggota.email             = data.email
+    if data.no_telepon        is not None: anggota.no_telepon        = data.no_telepon
     if data.tanggal_bergabung is not None: anggota.tanggal_bergabung = data.tanggal_bergabung
-    if data.status        is not None: anggota.status         = data.status
+    if data.status            is not None: anggota.status            = data.status
 
     db.commit()
     db.refresh(anggota)
@@ -220,24 +205,36 @@ def upsert_profil_anggota(
         raise NotFoundException("Anggota tidak ditemukan")
 
     profil = db.query(ProfilAnggota).filter(ProfilAnggota.id_anggota == id_anggota).first()
+
+    # Semua field profil yang perlu di-update
+    FIELDS = [
+        "nik", "tempat_lahir", "tanggal_lahir",
+        "jenis_kelamin",   # Validator schema sudah konversi "" → None
+        "alamat", "kota", "provinsi", "kode_pos",
+        "pekerjaan", "foto_profil",
+    ]
+
     if profil:
-        for field in ["nik","tempat_lahir","tanggal_lahir","jenis_kelamin","alamat","kota","provinsi","kode_pos","pekerjaan","foto_profil"]:
-            val = getattr(data, field, None)
-            if val is not None:
-                # Sanitize: empty string -> None untuk enum field
-                setattr(profil, field, None if (field == "jenis_kelamin" and val == "") else val)
+        # ── FIX UTAMA: set SEMUA field langsung tanpa kondisi "if not None" ──
+        # Dengan ini, jika user mengosongkan field (mengirim None),
+        # nilai di DB ikut dikosongkan — tidak diabaikan seperti sebelumnya.
+        for field in FIELDS:
+            setattr(profil, field, getattr(data, field, None))
     else:
-        profil = ProfilAnggota(id_anggota=id_anggota, **{
-            f: (None if (f == "jenis_kelamin" and getattr(data, f) == "") else getattr(data, f))
-            for f in ["nik","tempat_lahir","tanggal_lahir","jenis_kelamin","alamat","kota","provinsi","kode_pos","pekerjaan","foto_profil"]
-        })
+        profil = ProfilAnggota(
+            id_anggota=id_anggota,
+            **{f: getattr(data, f, None) for f in FIELDS}
+        )
         db.add(profil)
 
     db.commit()
     db.refresh(profil)
-    # Sanitize data lama di DB yang mungkin sudah berisi string kosong
+
+    # Pastikan string kosong tidak lolos ke response serializer
     if profil.jenis_kelamin == "":
         profil.jenis_kelamin = None
+        db.commit()
+
     return ProfilAnggotaResponse.model_validate(profil)
 
 
@@ -251,6 +248,8 @@ def get_profil_anggota(
     profil = db.query(ProfilAnggota).filter(ProfilAnggota.id_anggota == id_anggota).first()
     if not profil:
         raise NotFoundException("Profil anggota tidak ditemukan")
-    if profil.jenis_kelamin == "":
-        profil.jenis_kelamin = None
+
+    # Bersihkan data lama dari DB
+    profil = _clean_profil(profil, db)
+
     return ProfilAnggotaResponse.model_validate(profil)

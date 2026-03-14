@@ -1,5 +1,5 @@
 # ============================================================================
-# FILE: app/api/v1/endpoints/angsuran.py
+# FILE: app/api/v1/endpoints/angsuran.py  — UPDATED with date filter
 # ============================================================================
 
 from fastapi import APIRouter, Depends, status
@@ -24,16 +24,21 @@ def get_angsuran_list(
     limit: int = 10,
     id_pinjaman: Optional[int] = None,
     status: Optional[str] = None,
+    # ── Filter tanggal jatuh tempo (untuk filter per bulan) ───────────────
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get list angsuran"""
+    """Get list angsuran dengan filter status dan rentang tanggal jatuh tempo"""
     angsuran_list, total = angsuran_service.get_angsuran_list(
         db=db,
         skip=skip,
         limit=limit,
         id_pinjaman=id_pinjaman,
-        status=status
+        status=status,
+        start_date=start_date,
+        end_date=end_date,
     )
     
     page = (skip // limit) + 1 if limit > 0 else 1
@@ -197,7 +202,6 @@ def get_angsuran(
         "keterangan": angsuran.keterangan,
         "created_at": angsuran.created_at
     }
-    
     return AngsuranResponse(**response_data)
 
 
@@ -205,10 +209,11 @@ def get_angsuran(
 def bayar_angsuran(
     id_angsuran: int,
     data: AngsuranBayar,
-    current_user: dict = Depends(is_bendahara),
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Bayar angsuran (bendahara only)"""
+    """Bayar angsuran"""
+    is_bendahara(current_user)
     angsuran = angsuran_service.bayar_angsuran(
         db=db,
         id_angsuran=id_angsuran,
@@ -233,5 +238,4 @@ def bayar_angsuran(
         "keterangan": angsuran.keterangan,
         "created_at": angsuran.created_at
     }
-    
     return AngsuranResponse(**response_data)
