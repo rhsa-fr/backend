@@ -9,15 +9,15 @@ from typing import Generator
 from app.config import settings
 
 
-# Create SQLAlchemy engine
 engine = create_engine(
     settings.DATABASE_URL,
     pool_size=settings.DB_POOL_SIZE,
     max_overflow=settings.DB_MAX_OVERFLOW,
     pool_timeout=settings.DB_POOL_TIMEOUT,
     pool_recycle=settings.DB_POOL_RECYCLE,
-    pool_pre_ping=True,  # Enable connection health checks
-    echo=settings.DEBUG,  # Log SQL queries in debug mode
+    pool_pre_ping=True,
+    echo=settings.DEBUG,
+    connect_args={"ssl": {"ssl_mode": "REQUIRED"}}
 )
 
 # Create SessionLocal class
